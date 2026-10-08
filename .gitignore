@@ -40,6 +40,58 @@ local.properties
 node_modules/
 npm-debug.log
 yarn-error.log
+pnpm-debug.log
+*.log
+
+# Environment variables and local secrets
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+
+# Python backend
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+
+# Local study material and generated vector data
+/backend/input_lecture_notes/*
+!/backend/input_lecture_notes/.gitkeep
+/backend/chroma_db/
+/backend/vectorstore/
+/backend/.cache/
+
+# Model and ML caches
+.cache/
+**/.cache/
+huggingface/
+**/huggingface/
+transformers/
+**/transformers/
+torch/
+**/torch/
+
+# Local editor and operating-system files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*.tmp
+Thumbs.db
+Desktop.ini
 
 # fastlane
 #
