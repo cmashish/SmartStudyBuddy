@@ -1,216 +1,269 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import {ChatInput} from '../components/ChatInput';
 import {MessageBubble} from '../components/MessageBubble';
-import {clearHistory, sendMessage} from '../services/api';
-import {clearMessages, loadMessages, saveMessages} from '../storage/chatStorage';
-import {colors} from '../theme/colors';
-import type {ChatMessage} from '../types/chat';
+import {sendMessage, Source} from '../services/api';
 
-function createId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+type Message = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: Source[];
+};
 
-function createSessionId(): string {
-  return `session-${Date.now()}`;
-}
+const INITIAL_MESSAGE: Message = {
+  id: 'welcome',
+  role: 'assistant',
+  content:
+    'Hi! I’m ready to answer questions from your uploaded study material.',
+};
 
-export function ChatScreen() {
-  const [sessionId, setSessionId] = useState(createSessionId);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+export function ChatScreen({
+  onBack,
+}: {
+  onBack: () => void;
+}) {
+  const [messages, setMessages] = useState<Message[]>([
+    INITIAL_MESSAGE,
+  ]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const sessionId = useRef(
+    `session-${Date.now()}`,
+  ).current;
 
-  useEffect(() => {
-    loadMessages().then(setMessages);
-  }, []);
-
-  useEffect(() => {
-    saveMessages(messages);
-  }, [messages]);
-
-  const welcome = useMemo<ChatMessage>(
-    () => ({
-      id: 'welcome',
-      role: 'assistant',
-      content:
-        'Hi! I am Smart Study Buddy. Ask me a question about your uploaded study material.',
-      createdAt: new Date().toISOString(),
-    }),
-    [],
-  );
-
-  useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([welcome]);
+  const showError = (message: string) => {
+    if (Platform.OS === 'web') {
+      window.alert(message);
+    } else {
+      Alert.alert('Smart Study Buddy', message);
     }
-  }, [messages.length, welcome]);
+  };
 
-  async function handleSend() {
+  const handleSend = async () => {
     const question = input.trim();
-    if (!question || loading) {
+
+    if (!question || sending) {
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: createId(),
+    const userMessage: Message = {
+      id: `${Date.now()}-user`,
       role: 'user',
       content: question,
-      createdAt: new Date().toISOString(),
     };
 
+    setMessages(previous => [
+      ...previous,
+      userMessage,
+    ]);
     setInput('');
-    setMessages(current => [...current, userMessage]);
-    setLoading(true);
+    setSending(true);
 
     try {
-      const response = await sendMessage(sessionId, question);
+      const result = await sendMessage(
+        sessionId,
+        question,
+      );
 
-      const assistantMessage: ChatMessage = {
-        id: createId(),
-        role: 'assistant',
-        content: response.answer,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages(current => [...current, assistantMessage]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unable to reach the backend.';
-
-      setMessages(current => [
-        ...current,
+      setMessages(previous => [
+        ...previous,
         {
-          id: createId(),
+          id: `${Date.now()}-assistant`,
           role: 'assistant',
-          content: `I could not answer that because the backend request failed.\n\n${message}`,
-          createdAt: new Date().toISOString(),
+          content: result.answer,
+          sources: result.sources,
         },
       ]);
+    } catch (error: any) {
+      showError(
+        error?.message ??
+          'Could not get an answer from the backend.',
+      );
     } finally {
-      setLoading(false);
+      setSending(false);
     }
-  }
-
-  function handleNewChat() {
-    setSessionId(createSessionId());
-    setMessages([welcome]);
-    setInput('');
-  }
-
-  async function handleClear() {
-    try {
-      await clearHistory(sessionId);
-    } catch {
-      // The local UI can still be cleared if the backend session is unavailable.
-    }
-
-    await clearMessages();
-    setMessages([welcome]);
-    setSessionId(createSessionId());
-
-    Alert.alert('Chat cleared', 'Your local chat history has been cleared.');
-  }
+  };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Smart Study Buddy</Text>
-            <Text style={styles.subtitle}>RAG-powered learning assistant</Text>
-          </View>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={
+        Platform.OS === 'ios'
+          ? 'padding'
+          : undefined
+      }>
+      <View style={styles.header}>
+        <Pressable
+          onPress={onBack}
+          style={styles.backButton}>
+          <Text style={styles.backText}>‹</Text>
+        </Pressable>
 
-          <View style={styles.headerActions}>
-            <Pressable onPress={handleNewChat} style={styles.headerButton}>
-              <Text style={styles.headerButtonText}>New Chat</Text>
-            </Pressable>
-            <Pressable onPress={handleClear} style={styles.headerButton}>
-              <Text style={styles.headerButtonText}>Clear</Text>
-            </Pressable>
-          </View>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>
+            Study Chat
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            Answers grounded in your materials
+          </Text>
         </View>
-
-        <FlatList
-          data={messages}
-          keyExtractor={item => item.id}
-          renderItem={({item}) => <MessageBubble message={item} />}
-          contentContainerStyle={styles.list}
-          keyboardShouldPersistTaps="handled"
-        />
-
-        <ChatInput
-          value={input}
-          onChange={setInput}
-          onSend={handleSend}
-          loading={loading}
-        />
       </View>
-    </SafeAreaView>
+
+      <FlatList
+        data={messages}
+        keyExtractor={item => item.id}
+        contentContainerStyle={styles.messages}
+        renderItem={({item}) => (
+          <MessageBubble
+            role={item.role}
+            content={item.content}
+            sources={item.sources}
+          />
+        )}
+        ListFooterComponent={
+          sending ? (
+            <View style={styles.typing}>
+              <ActivityIndicator size="small" />
+              <Text style={styles.typingText}>
+                Thinking from your study material...
+              </Text>
+            </View>
+          ) : null
+        }
+      />
+
+      <View style={styles.inputArea}>
+        <TextInput
+          value={input}
+          onChangeText={setInput}
+          placeholder="Ask a question..."
+          placeholderTextColor="#9CA3AF"
+          multiline
+          maxLength={10000}
+          editable={!sending}
+          onSubmitEditing={handleSend}
+          style={styles.input}
+        />
+
+        <Pressable
+          onPress={handleSend}
+          disabled={!input.trim() || sending}
+          style={[
+            styles.sendButton,
+            (!input.trim() || sending) &&
+              styles.sendDisabled,
+          ]}>
+          <Text style={styles.sendText}>Send</Text>
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  screen: {
     flex: 1,
-    backgroundColor: colors.background,
-  },
-  container: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 1000,
-    alignSelf: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: '#F7F8FC',
   },
   header: {
-    minHeight: 72,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
+    borderBottomColor: '#E5E7EB',
   },
-  title: {
-    fontSize: 20,
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backText: {
+    fontSize: 32,
+    lineHeight: 32,
+    color: '#111827',
+  },
+  headerContent: {
+    marginLeft: 4,
+  },
+  headerTitle: {
+    fontSize: 17,
     fontWeight: '800',
-    color: colors.text,
+    color: '#111827',
   },
-  subtitle: {
+  headerSubtitle: {
     marginTop: 2,
-    fontSize: 12,
-    color: colors.secondaryText,
+    fontSize: 11,
+    color: '#6B7280',
   },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  headerButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  headerButtonText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  list: {
+  messages: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
     padding: 16,
     paddingBottom: 20,
+  },
+  typing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 8,
+  },
+  typingText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  inputArea: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  input: {
+    flex: 1,
+    minHeight: 46,
+    maxHeight: 120,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#111827',
+  },
+  sendButton: {
+    minHeight: 46,
+    paddingHorizontal: 18,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4F46E5',
+  },
+  sendDisabled: {
+    opacity: 0.45,
+  },
+  sendText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

@@ -68,6 +68,7 @@ htmlcov/
 # Local study material and generated vector data
 /backend/input_lecture_notes/*
 !/backend/input_lecture_notes/.gitkeep
+/backend/data/
 /backend/chroma_db/
 /backend/vectorstore/
 /backend/.cache/

@@ -1,12 +1,24 @@
-import React from 'react';
-import {StatusBar} from 'react-native';
+import React, {useState} from 'react';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {ChatScreen} from './src/screens/ChatScreen';
+import {StudyMaterialsScreen} from './src/screens/StudyMaterialsScreen';
 
 export default function App() {
+  const [screen, setScreen] = useState<'materials' | 'chat'>(
+    'materials',
+  );
+
   return (
-    <>
-      <StatusBar barStyle="dark-content" />
-      <ChatScreen />
-    </>
+    <SafeAreaProvider>
+      {screen === 'materials' ? (
+        <StudyMaterialsScreen
+          onStartStudying={() => setScreen('chat')}
+        />
+      ) : (
+        <ChatScreen
+          onBack={() => setScreen('materials')}
+        />
+      )}
+    </SafeAreaProvider>
   );
 }

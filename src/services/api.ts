@@ -1,42 +1,117 @@
-import {Platform} from 'react-native';
-import type {ChatResponse} from '../types/chat';
+import {apiUrl} from '../config/api';
 
-export const API_BASE_URL =
-  Platform.OS === 'web'
-    ? 'http://127.0.0.1:8000'
-    : 'http://192.168.1.6:8000';
+export type Source = {
+  source?: string;
+  page?: number | null;
+  score?: number;
+};
 
-// For a physical Android device replace the Android URL with your PC LAN IP.
-// Example: http://192.168.1.10:8000
+export type DocumentItem = {
+  document_id: string;
+  filename: string;
+  chunks: number;
+};
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers ?? {}),
-    },
-    ...options,
-  });
+export type ChatResponse = {
+  session_id: string;
+  answer: string;
+  sources: Source[];
+};
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(body || `Request failed: ${response.status}`);
+async function parseResponse(response: Response) {
+  const text = await response.text();
+
+  let body: any = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
   }
 
-  return response.json() as Promise<T>;
+  if (!response.ok) {
+    const detail =
+      body?.detail ||
+      text ||
+      response.statusText ||
+      'Unknown backend error';
+
+    throw new Error(
+      `Backend ${response.status}: ${detail}`,
+    );
+  }
+
+  return body;
+}
+
+export async function getDocuments(): Promise<DocumentItem[]> {
+  const response = await fetch(apiUrl('/documents'));
+  const body = await parseResponse(response);
+  return body?.documents ?? [];
+}
+
+export async function uploadDocument(
+  file: {
+    uri?: string;
+    name: string;
+    type: string;
+    file?: unknown;
+  },
+): Promise<{
+  document_id: string;
+  filename: string;
+  status: string;
+  chunks: number;
+  total_chunks: number;
+}> {
+  const form = new FormData();
+
+  if (file.file) {
+    form.append(
+      'file',
+      file.file as Blob,
+    );
+  } else {
+    form.append(
+      'file',
+      {
+        uri: file.uri,
+        name: file.name,
+        type: file.type,
+      } as any,
+    );
+  }
+
+  const response = await fetch(
+    apiUrl('/documents/upload'),
+    {
+      method: 'POST',
+      body: form,
+    },
+  );
+
+  return parseResponse(response);
+}
+
+export async function deleteDocument(
+  documentId: string,
+): Promise<void> {
+  const response = await fetch(
+    apiUrl(`/documents/${encodeURIComponent(documentId)}`),
+    {
+      method: 'DELETE',
+    },
+  );
+
+  await parseResponse(response);
 }
 
 export async function sendMessage(
   sessionId: string,
   message: string,
 ): Promise<ChatResponse> {
-
-  const url = `${API_BASE_URL}/chat`;
-
-  console.log('Calling backend:', url);
-
-  try {
-    const response = await fetch(url, {
+  const response = await fetch(
+    apiUrl('/chat'),
+    {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -45,37 +120,8 @@ export async function sendMessage(
         session_id: sessionId,
         message,
       }),
-    });
+    },
+  );
 
-    const body = await response.text();
-
-    console.log('Backend status:', response.status);
-    console.log('Backend response:', body);
-
-    if (!response.ok) {
-      throw new Error(
-        `Backend HTTP ${response.status}: ${body}`,
-      );
-    }
-
-    return JSON.parse(body);
-  } catch (error) {
-    console.error('Backend connection error:', error);
-
-    throw error;
-  }
-}
-
-export async function getHistory(sessionId: string): Promise<unknown[]> {
-  return request<unknown[]>(`/history/${encodeURIComponent(sessionId)}`);
-}
-
-export async function clearHistory(sessionId: string): Promise<void> {
-  await request(`/history/${encodeURIComponent(sessionId)}`, {
-    method: 'DELETE',
-  });
-}
-
-export async function healthCheck(): Promise<{status: string}> {
-  return request<{status: string}>('/health');
+  return parseResponse(response);
 }
